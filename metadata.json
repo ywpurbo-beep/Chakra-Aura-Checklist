@@ -1,0 +1,6 @@
+{
+  "name": "Checklist Chakra & Aura",
+  "description": "Sebuah aplikasi interaktif untuk melacak aktivitas harian penyelarasan chakra dan pancaran aura diri dengan penyimpanan lokal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
