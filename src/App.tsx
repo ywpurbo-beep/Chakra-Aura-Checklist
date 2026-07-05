@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, JSX } from "react";
 import { 
-  Sparkles, 
+  Leaf, 
   Trash2, 
   Printer, 
   ChevronsUpDown, 
@@ -8,19 +8,26 @@ import {
   BookOpen, 
   CheckCircle2,
   Calendar,
-  Heart
+  PenTool
 } from "lucide-react";
-import { CHAKRA_DATA, getInsightText, getAuraCaptionText } from "./data";
-import { ChecklistState } from "./types";
+import { 
+  LAKU_CATEGORIES, 
+  calculateChakraScores, 
+  generateReflectionFeedback, 
+  getAuraCaptionText,
+  generateAIOpinion
+} from "./data";
+import { LakuState, LakuScoreValue } from "./types";
 import AuraVisualizer from "./components/AuraVisualizer";
-import ChakraCard from "./components/ChakraCard";
+import LakuCard from "./components/LakuCard";
+import nusantaraHeaderBg from "./assets/images/nusantara_laku_header_1783248754841.jpg";
 
-const STORAGE_KEY = "chakraAuraPortableChecklist.v1";
-const NOTES_KEY = "chakraAuraPortableChecklist.notes.v1";
+const STORAGE_KEY = "lakuVisualizerState.v1";
+const NOTES_KEY = "lakuVisualizerNotes.v1";
 
-export default function App() {
-  // Load checklist state from LocalStorage
-  const [checklistState, setChecklistState] = useState<ChecklistState>(() => {
+export default function App(): JSX.Element {
+  // Load laku checklist state from LocalStorage
+  const [lakuState, setLakuState] = useState<LakuState>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(STORAGE_KEY);
       return saved ? JSON.parse(saved) : {};
@@ -28,7 +35,7 @@ export default function App() {
     return {};
   });
 
-  // Load reflection notes
+  // Load daily notes/journal
   const [notes, setNotes] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(NOTES_KEY) || "";
@@ -36,10 +43,9 @@ export default function App() {
     return "";
   });
 
-  // Keep track of which card IDs are expanded
-  const [openCards, setOpenCards] = useState<Record<string, boolean>>(() => {
-    // By default, open the first 2 chakras (Root and Sacral) to welcome the user
-    return { root: true, sacral: true };
+  // Expand state for categories (default first 2 open for nice welcome feel)
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(() => {
+    return { "ritme-alam": true, "tubuh": true };
   });
 
   // Localized Indonesian Date Header
@@ -55,293 +61,315 @@ export default function App() {
     setCurrentDate(new Date().toLocaleDateString('id-ID', options));
   }, []);
 
-  // Save checklist state to LocalStorage when changed
+  // Save laku checklist state
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(checklistState));
-  }, [checklistState]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lakuState));
+  }, [lakuState]);
 
-  // Save notes to LocalStorage when changed
+  // Save notes
   useEffect(() => {
     localStorage.setItem(NOTES_KEY, notes);
   }, [notes]);
 
-  // Toggle item checklist state
-  const handleItemToggle = (itemId: string) => {
-    setChecklistState((prev) => ({
+  // Handle single laku item score change (0, 1, 2)
+  const handleItemValueChange = (itemId: string, value: LakuScoreValue) => {
+    setLakuState((prev) => ({
       ...prev,
-      [itemId]: !prev[itemId]
+      [itemId]: value
     }));
   };
 
-  // Toggle single chakra card collapse state
-  const toggleCard = (chakraId: string) => {
-    setOpenCards((prev) => ({
+  // Toggle single category accordion
+  const toggleCategory = (categoryId: string) => {
+    setOpenCategories((prev) => ({
       ...prev,
-      [chakraId]: !prev[chakraId]
+      [categoryId]: !prev[categoryId]
     }));
   };
 
-  // Expand all cards
+  // Expand all categories
   const handleExpandAll = () => {
     const allExpanded: Record<string, boolean> = {};
-    CHAKRA_DATA.forEach((c) => {
-      allExpanded[c.id] = true;
+    LAKU_CATEGORIES.forEach((cat) => {
+      allExpanded[cat.id] = true;
     });
-    setOpenCards(allExpanded);
+    setOpenCategories(allExpanded);
   };
 
-  // Collapse all cards
+  // Collapse all categories
   const handleCollapseAll = () => {
     const allCollapsed: Record<string, boolean> = {};
-    CHAKRA_DATA.forEach((c) => {
-      allCollapsed[c.id] = false;
+    LAKU_CATEGORIES.forEach((cat) => {
+      allCollapsed[cat.id] = false;
     });
-    setOpenCards(allCollapsed);
+    setOpenCategories(allCollapsed);
   };
 
-  // Reset all states
+  // Reset all laku answers and journal notes
   const handleReset = () => {
-    const confirmed = window.confirm("Apakah Anda yakin ingin mengatur ulang semua progres centang dan catatan refleksi hari ini?");
+    const confirmed = window.confirm("Apakah Anda yakin ingin mengatur ulang semua progres laku harian dan catatan refleksi hari ini?");
     if (confirmed) {
-      setChecklistState({});
+      setLakuState({});
       setNotes("");
-      // Reset expanded cards back to original welcome state
-      setOpenCards({ root: true, sacral: true });
+      setOpenCategories({ "ritme-alam": true, "tubuh": true });
     }
   };
 
-  // Trigger browser print
+  // Print support
   const handlePrint = () => {
-    // Open all cards temporarily for a perfect print/PDF structure
+    // Open all to show completely in PDF
     const allExpanded: Record<string, boolean> = {};
-    CHAKRA_DATA.forEach((c) => {
-      allExpanded[c.id] = true;
+    LAKU_CATEGORIES.forEach((cat) => {
+      allExpanded[cat.id] = true;
     });
-    setOpenCards(allExpanded);
+    setOpenCategories(allExpanded);
 
-    // Give state brief time to update and print
     setTimeout(() => {
       window.print();
-    }, 200);
+    }, 250);
   };
 
-  // Calculate dynamic statistics
-  let totalItemsCount = 0;
+  // Calculate under-the-hood statistics and chakras
+  const chakras = calculateChakraScores(lakuState);
+
+  // progressMap maps chakra id to percentage
+  const progressMap = chakras.reduce((acc, chakra) => {
+    acc[chakra.id] = chakra.score;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Compute total possible max score vs current earned score
+  let totalMaxScore = 0;
+  let currentEarnedScore = 0;
   let completedItemsCount = 0;
 
-  // Track progress percentages for each chakra (for sidebar progress bars and aura)
-  const progressMap: Record<string, number> = {};
-
-  CHAKRA_DATA.forEach((chakra) => {
-    const total = chakra.items.length;
-    const completed = chakra.items.filter((item) => checklistState[item.id]).length;
-    
-    totalItemsCount += total;
-    completedItemsCount += completed;
-    
-    progressMap[chakra.id] = total ? Math.round((completed / total) * 100) : 0;
+  LAKU_CATEGORIES.forEach((category) => {
+    category.items.forEach((item) => {
+      totalMaxScore += 2; // Each item max points is 2
+      const score = lakuState[item.id] || 0;
+      currentEarnedScore += score;
+      if (score > 0) {
+        completedItemsCount++;
+      }
+    });
   });
 
-  const overallPercentage = totalItemsCount ? Math.round((completedItemsCount / totalItemsCount) * 100) : 0;
-  const insightText = getInsightText(overallPercentage, completedItemsCount);
+  const overallPercentage = totalMaxScore ? Math.round((currentEarnedScore / totalMaxScore) * 100) : 0;
+  const reflectionFeedback = generateReflectionFeedback(chakras, completedItemsCount);
   const auraCaptionText = getAuraCaptionText(overallPercentage, completedItemsCount);
+  const aiOpinionText = generateAIOpinion(chakras, completedItemsCount);
 
   return (
-    <div className="min-h-screen text-stone-800 selection:bg-amber-100 selection:text-amber-900 bg-radial from-stone-50 via-stone-100/60 to-stone-200/40 pb-16 print:bg-white print:pb-0">
+    <div className="min-h-screen text-stone-800 selection:bg-emerald-100 selection:text-emerald-900 bg-[#FAF8F5] pb-16 print:bg-white print:pb-0">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-12">
         
-        {/* Dynamic Header */}
-        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-8 border-b border-stone-200 print:pb-4">
-          <div className="flex items-center gap-4 min-w-0">
-            {/* Ambient Conic Logo */}
-            <div 
-              className="w-12 h-12 rounded-full flex-shrink-0 bg-conic from-red-500 via-orange-400 via-yellow-400 via-green-500 via-blue-500 via-indigo-500 via-purple-500 to-red-500 shadow-lg relative flex items-center justify-center p-[6px]"
-              aria-hidden="true"
-            >
-              <div className="w-full h-full rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center text-stone-800">
-                <Sparkles size={18} className="text-amber-500 animate-pulse" />
+        {/* Navigation & Header Card Wrapper */}
+        <div className="relative overflow-hidden rounded-3xl bg-white border border-stone-200/80 p-6 sm:p-8 shadow-sm mb-6 print:border-none print:p-0 print:shadow-none print:bg-transparent">
+          {/* Transparent Watercolor Javanese Landscape Background */}
+          <img 
+            src={nusantaraHeaderBg} 
+            alt="Watercolor Nusantara Landscape" 
+            className="absolute inset-0 w-full h-full object-cover opacity-[0.16] pointer-events-none select-none mix-blend-multiply"
+            referrerPolicy="no-referrer"
+          />
+          
+          <header className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6 print:pb-4">
+            <div className="flex items-center gap-4 min-w-0">
+              {/* Elegant Java/Nusantara inspired leaf/nature logo */}
+              <div className="w-12 h-12 rounded-2xl bg-[#2d6a4f]/10 flex items-center justify-center text-[#2d6a4f] shadow-sm flex-shrink-0">
+                <Leaf size={24} className="animate-pulse" />
+              </div>
+
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-stone-950">
+                  Laku Visualizer
+                </h1>
+                <p className="text-stone-500 text-xs sm:text-sm font-medium leading-relaxed max-w-xl mt-1">
+                  Wadah tenang harian untuk mawas diri, merefleksikan keselarasan laku hidup jasmani, emosional, dan batin melalui cerminan aura diri.
+                </p>
               </div>
             </div>
 
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight text-stone-900 flex items-center gap-2 flex-wrap">
-                Checklist Aktivitas Chakra & Aura
-              </h1>
-              <p className="text-stone-500 text-xs sm:text-sm font-medium leading-relaxed max-w-xl mt-1">
-                Satu wadah tenang harian untuk menyelaraskan energi fisik, emosional, dan spiritual Anda melalui aktivitas bermakna.
-              </p>
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <button
+                onClick={handleExpandAll}
+                type="button"
+                className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <ChevronsUpDown size={15} />
+                Buka Semua Laku
+              </button>
+              <button
+                onClick={handleCollapseAll}
+                type="button"
+                className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
+              >
+                Ringkas
+              </button>
+              <button
+                onClick={handlePrint}
+                type="button"
+                className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Printer size={15} />
+                Simpan PDF / Cetak
+              </button>
+              <button
+                onClick={handleReset}
+                type="button"
+                className="px-3.5 py-2.5 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-50 text-amber-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <RotateCcw size={15} />
+                Reset Laku
+              </button>
             </div>
-          </div>
+          </header>
+        </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2 print:hidden">
-            <button
-              onClick={handleExpandAll}
-              type="button"
-              className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white/80 hover:bg-white text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <ChevronsUpDown size={15} />
-              Buka Semua
-            </button>
-            <button
-              onClick={handleCollapseAll}
-              type="button"
-              className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white/80 hover:bg-white text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
-            >
-              Ringkas
-            </button>
-            <button
-              onClick={handlePrint}
-              type="button"
-              className="px-3.5 py-2.5 rounded-xl border border-stone-200 bg-white/80 hover:bg-white text-stone-600 hover:text-stone-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <Printer size={15} />
-              Cetak / PDF
-            </button>
-            <button
-              onClick={handleReset}
-              type="button"
-              className="px-3.5 py-2.5 rounded-xl border border-red-200 bg-red-50/40 hover:bg-red-50 text-red-700 hover:text-red-800 font-semibold text-xs sm:text-sm shadow-sm inline-flex items-center gap-2 transition-all cursor-pointer"
-            >
-              <RotateCcw size={15} />
-              Reset Progres
-            </button>
-          </div>
-        </header>
-
-        {/* Localized Greeting and Saved Indicator */}
-        <div className="py-4 flex flex-wrap items-center justify-between gap-3 text-stone-500 text-xs font-semibold uppercase tracking-wider border-b border-stone-100 print:hidden">
+        {/* Date and offline status indicator */}
+        <div className="py-4 flex flex-wrap items-center justify-between gap-3 text-stone-500 text-xs font-semibold uppercase tracking-wider border-b border-stone-100/60 print:hidden">
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-stone-400" />
             <span>{currentDate}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-emerald-600 font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-            <span>Tersimpan otomatis di Browser</span>
+          <div className="flex items-center gap-1.5 text-[#2d6a4f] font-bold">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#2d6a4f]" />
+            <span>Refleksi Offline Aman di Browser</span>
           </div>
         </div>
 
-        {/* Main Grid Layout */}
+        {/* Main Columns Grid Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-8 items-start">
           
-          {/* Left Column: Chakra Accordion Checklist Cards */}
-          <section className="lg:col-span-7 xl:col-span-8 space-y-4" aria-label="Aktivitas harian per chakra">
-            {CHAKRA_DATA.map((chakra) => (
-              <ChakraCard
-                key={chakra.id}
-                chakra={chakra}
-                isOpen={Boolean(openCards[chakra.id])}
-                onToggleOpen={() => toggleCard(chakra.id)}
-                checklistState={checklistState}
-                onItemToggle={handleItemToggle}
+          {/* Left Column: Laku Categories Accordions */}
+          <section className="lg:col-span-7 xl:col-span-8 space-y-4" aria-label="Laku harian harian per kategori">
+            {LAKU_CATEGORIES.map((category) => (
+              <LakuCard
+                key={category.id}
+                category={category}
+                isOpen={Boolean(openCategories[category.id])}
+                onToggleOpen={() => toggleCategory(category.id)}
+                lakuState={lakuState}
+                onItemValueChange={handleItemValueChange}
               />
             ))}
           </section>
 
-          {/* Right Column: Sticky Dashboard & Visualizers */}
+          {/* Right Column: Visual Aura, Reflections, and Breakdown */}
           <aside className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-8 space-y-6">
             
-            {/* Visual Aura Stage */}
+            {/* Aura Visualizer Frame */}
             <AuraVisualizer
-              chakras={CHAKRA_DATA}
+              chakras={chakras}
               progressMap={progressMap}
               overallProgress={overallPercentage}
               auraCaption={auraCaptionText}
+              aiOpinion={aiOpinionText}
             />
 
-            {/* Overall Progression Circle and Counts */}
-            <div className="bg-white/90 border border-stone-200/80 rounded-2xl p-6 shadow-sm flex flex-col items-center">
-              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest text-center mb-4">Penyelarasan Hari Ini</h3>
+            {/* Overall Integration Wheel */}
+            <div className="bg-white border border-stone-200/80 rounded-3xl p-6 shadow-sm flex flex-col items-center">
+              <h3 className="text-xs font-extrabold text-stone-400 uppercase tracking-widest text-center mb-4">Penyelarasan Laku Harian</h3>
               
-              <div className="relative w-40 h-40 flex items-center justify-center mb-4">
-                {/* SVG Progress Circle */}
+              <div className="relative w-36 h-36 flex items-center justify-center mb-4">
                 <svg className="w-full h-full transform -rotate-90">
                   <circle
-                    cx="80"
-                    cy="80"
-                    r="68"
+                    cx="72"
+                    cy="72"
+                    r="58"
                     className="stroke-stone-100 fill-none"
-                    strokeWidth="12"
+                    strokeWidth="10"
                   />
                   <circle
-                    cx="80"
-                    cy="80"
-                    r="68"
-                    className="stroke-emerald-600 fill-none transition-all duration-700 ease-out"
-                    strokeWidth="12"
-                    strokeDasharray={2 * Math.PI * 68}
-                    strokeDashoffset={2 * Math.PI * 68 * (1 - overallPercentage / 100)}
+                    cx="72"
+                    cy="72"
+                    r="58"
+                    className="stroke-[#2d6a4f] fill-none transition-all duration-1000 ease-out"
+                    strokeWidth="10"
+                    strokeDasharray={2 * Math.PI * 58}
+                    strokeDashoffset={2 * Math.PI * 58 * (1 - overallPercentage / 100)}
                     strokeLinecap="round"
                   />
                 </svg>
-                {/* Score Text */}
+                {/* Center score */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-extrabold text-stone-900 tracking-tight">{overallPercentage}%</span>
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400 mt-0.5">SINKRON</span>
+                  <span className="text-2xl font-black text-stone-900 tracking-tight">{overallPercentage}%</span>
+                  <span className="text-[9px] uppercase font-bold tracking-wider text-stone-400 mt-0.5">SINKRON</span>
                 </div>
               </div>
 
               <div className="text-center">
                 <p className="text-sm font-semibold text-stone-700 flex items-center justify-center gap-1.5">
-                  <CheckCircle2 size={16} className="text-emerald-600" />
-                  {completedItemsCount} dari {totalItemsCount} Aktivitas Selesai
+                  <CheckCircle2 size={16} className="text-[#2d6a4f]" />
+                  {completedItemsCount} dari {LAKU_CATEGORIES.reduce((acc, c) => acc + c.items.length, 0)} Laku Dijalankan
                 </p>
               </div>
             </div>
 
-            {/* Wisdom Insight Panel */}
-            <div className="bg-gradient-to-br from-amber-50/50 to-stone-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
-              <h3 className="text-xs font-bold text-amber-800 uppercase tracking-widest flex items-center gap-1.5 mb-2">
-                <BookOpen size={14} /> Refleksi Energi
+            {/* Reflection Text Insights (Rule-based feedback from actual scores) */}
+            <div className="bg-[#FAF6F0] border border-[#e4d9c8] rounded-3xl p-5 shadow-sm">
+              <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-widest flex items-center gap-1.5 mb-2.5">
+                <BookOpen size={14} className="text-[#8b7355]" /> Ringkasan Mawas Diri
               </h3>
-              <p className="text-sm text-stone-600 font-medium leading-relaxed">
-                {insightText}
+              <p className="text-sm text-stone-700 font-medium leading-relaxed">
+                {reflectionFeedback}
               </p>
             </div>
 
-            {/* Miniature Bars breakdown per Chakra */}
-            <div className="bg-white/90 border border-stone-200/80 rounded-2xl p-5 shadow-sm space-y-3.5">
-              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-3">Rincian Penyelarasan</h3>
-              {CHAKRA_DATA.map((chakra) => {
-                const percent = progressMap[chakra.id] || 0;
+            {/* Inner Chakras Energy State Breakdown (Calculated from Laku) */}
+            <div className="bg-white border border-stone-200/80 rounded-3xl p-5 shadow-sm space-y-3.5">
+              <h3 className="text-xs font-extrabold text-stone-400 uppercase tracking-widest mb-3">Keadaan Pusat Batin</h3>
+              {chakras.map((chakra) => {
                 return (
-                  <div key={chakra.id} className="grid grid-cols-[80px_1fr_40px] items-center gap-3 text-xs font-semibold">
-                    <span className="text-stone-600">{chakra.label}</span>
+                  <div key={chakra.id} className="grid grid-cols-[85px_1fr_40px] items-center gap-3 text-xs font-semibold">
+                    <span className="text-stone-600 truncate" title={chakra.label}>{chakra.label} ({chakra.name})</span>
                     <div className="h-2 w-full bg-stone-100 rounded-full overflow-hidden">
                       <div 
-                        className="h-full rounded-full transition-all duration-500 ease-out"
+                        className="h-full rounded-full transition-all duration-700 ease-out"
                         style={{ 
-                          width: `${percent}%`,
+                          width: `${chakra.score}%`,
                           backgroundColor: chakra.color 
                         }}
                       />
                     </div>
-                    <span className="text-right font-mono text-stone-500">{percent}%</span>
+                    <span className="text-right font-mono text-stone-500">{chakra.score}%</span>
                   </div>
                 );
               })}
             </div>
 
-            {/* Personal Reflective Notes */}
-            <div className="bg-white/90 border border-stone-200/80 rounded-2xl p-5 shadow-sm">
-              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-1.5 mb-2.5">
-                <Heart size={14} className="text-red-500" /> Jurnal Refleksi Hati
+            {/* Personal Reflective Notes / Jurnal */}
+            <div className="bg-white border border-stone-200/80 rounded-3xl p-5 shadow-sm">
+              <h3 className="text-xs font-extrabold text-stone-400 uppercase tracking-widest flex items-center gap-1.5 mb-2.5">
+                <PenTool size={14} className="text-[#8b7355]" /> Catatan Kontemplasi Pribadi
               </h3>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Tuliskan sensasi fisik, emosi yang timbul, kejernihan pikiran, atau getaran rasa syukur yang Anda alami hari ini..."
-                className="w-full min-h-[120px] rounded-xl border border-stone-200 p-3 text-sm text-stone-700 placeholder-stone-400 focus:border-amber-400 focus:outline-none transition-all resize-y bg-stone-50/30"
+                placeholder="Tuliskan heningnya rasa syukur, luapan emosi, kejernihan pikiran, atau refleksi mendalam yang Anda rasakan setelah melakukan laku harian..."
+                className="w-full min-h-[120px] rounded-2xl border border-stone-200/80 p-3 text-sm text-stone-700 placeholder-stone-400 focus:border-[#2d6a4f]/40 focus:ring-1 focus:ring-[#2d6a4f]/20 focus:outline-none transition-all resize-y bg-stone-50/30"
               />
             </div>
 
           </aside>
         </div>
 
-        {/* App Footer */}
-        <footer className="mt-16 text-center text-xs text-stone-400 font-medium border-t border-stone-200/60 pt-6 print:hidden">
-          <p>Seluruh data tersimpan aman secara offline di browser perangkat Anda.</p>
-          <p className="mt-1">Dibuat sebagai sarana meditasi praktis harian.</p>
+        {/* Nusantara Footer with Eling Lan Waspodo Reminder */}
+        <footer className="mt-16 text-center border-t border-stone-200/60 pt-8 pb-4 print:mt-8 print:pt-4">
+          <div className="max-w-2xl mx-auto space-y-2">
+            <h4 className="text-xs font-black uppercase tracking-widest text-amber-800 flex items-center justify-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+              Eling Lan Waspodo
+            </h4>
+            <p className="text-sm sm:text-base italic font-serif text-stone-600 leading-relaxed max-w-xl mx-auto">
+              &ldquo;Laku membentuk keadaan diri. Eling melihatnya. Waspada menuntun langkah berikutnya.&rdquo;
+            </p>
+            <div className="pt-4 text-[10.5px] text-stone-400 font-semibold uppercase tracking-wider space-y-1">
+              <p>Laku Visualizer &bull; Seluruh data tersimpan aman secara offline di peramban Anda</p>
+              <p className="font-normal text-[10px] text-stone-400/80 normal-case">Diciptakan sebagai cermin penyelarasan diri dan keheningan hidup modern.</p>
+            </div>
+          </div>
         </footer>
 
       </div>

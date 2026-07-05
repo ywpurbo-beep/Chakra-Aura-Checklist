@@ -1,6 +1,6 @@
 {
-  "name": "Checklist Chakra & Aura",
-  "description": "Sebuah aplikasi interaktif untuk melacak aktivitas harian penyelarasan chakra dan pancaran aura diri dengan penyimpanan lokal.",
+  "name": "Laku Visualizer",
+  "description": "Sebuah wadah mawas diri harian untuk merefleksikan keselarasan laku hidup jasmani, emosional, dan spiritual melalui visualisasi aura diri.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
